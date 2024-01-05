@@ -48,10 +48,10 @@ class Kitti:
             self.__c2c_path, self.__c2c_file = None, None
         if xml_path is not None:
             self.__xml_path = xml_path
-            self.__tracklet_box, self.__tracklet_type = self.__load_tracklet()
+            self.__tracklet_box, self.__tracklet_type,  self.__tracklet_info = self.__load_tracklet()
         else:
             self.__xml_path = None
-            self.__tracklet_box, self.__tracklet_type = None, None
+            self.__tracklet_box, self.__tracklet_type, self.__tracklet_info = None, None, None
 
     @property
     def frame_type(self):
@@ -99,7 +99,7 @@ class Kitti:
 
     @property
     def tracklet_info(self):
-        return self.__tracklet_box, self.__tracklet_type
+        return self.__tracklet_box, self.__tracklet_type, self.__tracklet_info
 
     def __get_velo(self, files):
         """ Convert bin to numpy array for whole dataset"""
@@ -182,7 +182,7 @@ class Kitti:
 
         f_tracklet = {}
         f_type = {}
-
+        f_other = {}
         # refered to parseTrackletXML.py's example function
         # loop over tracklets
         for tracklet in tracklets:
@@ -196,13 +196,14 @@ class Kitti:
 
             # loop over all data in tracklet
             for translation, rotation, state, occlusion, truncation, amtOcclusion, amtBorders, absoluteFrameNumber in tracklet:
-
+                other = [truncation, occlusion[0], translation, rotation, tracklet.size]
                 # determine if object is in the image; otherwise continue
                 if truncation not in (pt_XML.TRUNC_IN_IMAGE, pt_XML.TRUNC_TRUNCATED):
                     continue
 
                 # re-create 3D bounding box in velodyne coordinate system
                 yaw = rotation[2]  # other rotations are 0 in all xml files I checked
+                other.append(yaw)
                 assert np.abs(rotation[:2]).sum() == 0, 'object rotations other than yaw given!'
                 rotMat = np.array([ \
                     [np.cos(yaw), -np.sin(yaw), 0.0], \
@@ -211,12 +212,18 @@ class Kitti:
 
                 cornerPosInVelo = np.dot(rotMat, trackletBox) + np.tile(translation, (8, 1)).T
 
+                x, y, z = translation
+                yawVisual = ( yaw - np.arctan2(y, x) ) % np.pi
+                other.append(yawVisual)
+
                 if absoluteFrameNumber in f_tracklet:
                     f_tracklet[absoluteFrameNumber] += [cornerPosInVelo]
                     f_type[absoluteFrameNumber] += [tracklet.objectType]
+                    f_other[absoluteFrameNumber] += [other]
                 else:
                     f_tracklet[absoluteFrameNumber] = [cornerPosInVelo]
                     f_type[absoluteFrameNumber] = [tracklet.objectType]
+                    f_other[absoluteFrameNumber] = [other]
 
         # fill none in non object frame
         if self.num_frame is not None:
@@ -224,8 +231,9 @@ class Kitti:
                 if i not in f_tracklet:
                     f_tracklet[i] = None
                     f_type[i] = None
+                    f_other[i] = None
 
-        return f_tracklet, f_type
+        return f_tracklet, f_type, f_other
 
     def __del__(self):
         pass
